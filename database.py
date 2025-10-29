@@ -131,6 +131,26 @@ class HueDatabase:
             """, (rid, name, device_type))
             conn.commit()
 
+    def get_device_info(self, rid: str) -> Optional[Dict[str, Any]]:
+        """Get device information by resource ID."""
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT rid, name, type, updated_at 
+                FROM devices 
+                WHERE rid = ?
+            """, (rid,))
+            row = cur.fetchone()
+
+            if row:
+                return {
+                    "rid": row["rid"],
+                    "name": row["name"],
+                    "type": row["type"],
+                    "updated_at": row["updated_at"]
+                }
+            return None
+
     def update_device_last_seen(self, rid: str, ts: str, day: str):
         """Update the last seen timestamp for a device."""
         with self.get_connection() as conn:

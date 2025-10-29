@@ -6,7 +6,7 @@ import threading
 import datetime as dt
 import requests
 import structlog
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from database import HueDatabase
 from config import config
 
@@ -91,6 +91,48 @@ class HueEventProcessor:
         except Exception as e:
             logger.error("Failed to update device catalog", error=str(e))
 
+    def get_zigbee_connectivity(self):
+        """Fetch zigbee connectivity information from the bridge."""
+        try:
+            zigbee_url = f"https://{self.bridge_ip}/clip/v2/resource/zigbee_connectivity"
+            response = requests.get(
+                zigbee_url,
+                headers={"hue-application-key": self.app_key},
+                verify=self.verify_tls,
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.debug("Fetched zigbee connectivity data",
+                        device_count=len(data.get("data", [])))
+            return data.get("data", [])
+
+        except Exception as e:
+            logger.error("Failed to fetch zigbee connectivity", error=str(e))
+            return []
+
+    def get_zgp_connectivity(self):
+        """Fetch ZGP (Zigbee Green Power) connectivity information from the bridge."""
+        try:
+            zgp_url = f"https://{self.bridge_ip}/clip/v2/resource/zgp_connectivity"
+            response = requests.get(
+                zgp_url,
+                headers={"hue-application-key": self.app_key},
+                verify=self.verify_tls,
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.debug("Fetched ZGP connectivity data",
+                        device_count=len(data.get("data", [])))
+            return data.get("data", [])
+
+        except Exception as e:
+            logger.error("Failed to fetch ZGP connectivity", error=str(e))
+            return []
+
     def _event_stream_loop(self):
         """Main event streaming loop."""
         # Update device catalog once at startup
@@ -122,7 +164,7 @@ class HueEventProcessor:
                             continue
 
                         payload = line[5:].strip()
-                        now_iso = dt.datetime.utcnow().isoformat() + "Z"
+                        now_iso = dt.datetime.now(dt.UTC) .isoformat() + "Z"
 
                         try:
                             events = json.loads(payload)
@@ -236,7 +278,7 @@ class HueEventProcessor:
         if not status:
             return
 
-        now_utc = dt.datetime.utcnow()
+        now_utc = dt.datetime.now(dt.UTC)
 
         if status in ("connectivity_issue", "disconnected"):
             # Device went offline - start tracking if not already
@@ -248,7 +290,7 @@ class HueEventProcessor:
         elif status == "connected":
             # Device came back online - calculate downtime
             start_time = self.bad_state_start.pop(rid, None)
-            if start_time:
+            if start_time is not None:
                 downtime_minutes = int((now_utc - start_time).total_seconds() // 60)
                 if downtime_minutes > 0:
                     self.db.add_unreachable_minutes(rid, today, downtime_minutes)
@@ -264,7 +306,7 @@ class HueEventProcessor:
                 yield event
             except queue.Empty:
                 # Send keepalive
-                yield {"type": "keepalive", "ts": dt.datetime.utcnow().isoformat() + "Z"}
+                yield {"type": "keepalive", "ts": dt.datetime.now(dt.UTC) .isoformat() + "Z"}
 
     def drain_live_events(self, max_events: int = 100) -> List[Dict[str, Any]]:
         """Drain events from the live queue."""

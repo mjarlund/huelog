@@ -269,6 +269,79 @@ def create_app():
             logger.error("Error refreshing devices", error=str(e))
             return jsonify({"error": str(e)}), 500
 
+    @app.route("/resource/zigbee_connectivity")
+    def resource_zigbee_connectivity():
+        """API endpoint to get zigbee connectivity information."""
+        try:
+            if not event_processor:
+                return jsonify({"error": "Event processor not initialized"}), 503
+
+            connectivity_data = event_processor.get_zigbee_connectivity()
+
+            # Enhance the data with device names from our database
+            enhanced_data = []
+            for item in connectivity_data:
+                device_id = item.get("id")
+                if device_id:
+                    # Try to get device name from database
+                    device_info = db.get_device_info(device_id)
+                    enhanced_item = item.copy()
+                    if device_info:
+                        enhanced_item["device_name"] = device_info.get("name", device_id)
+                        enhanced_item["device_type"] = device_info.get("type", "unknown")
+                    else:
+                        enhanced_item["device_name"] = device_id
+                        enhanced_item["device_type"] = "unknown"
+                    enhanced_data.append(enhanced_item)
+                else:
+                    enhanced_data.append(item)
+
+            return jsonify({
+                "data": enhanced_data,
+                "count": len(enhanced_data),
+                "timestamp": dt.datetime.utcnow().isoformat() + "Z"
+            })
+        except Exception as e:
+            logger.error("Error getting zigbee connectivity", error=str(e))
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/resource/zgp_connectivity")
+    def resource_zgp_connectivity():
+        """API endpoint to get ZGP (Zigbee Green Power) connectivity information."""
+        try:
+            if not event_processor:
+                return jsonify({"error": "Event processor not initialized"}), 503
+
+            connectivity_data = event_processor.get_zgp_connectivity()
+
+            # Enhance the data with device names from our database
+            enhanced_data = []
+            for item in connectivity_data:
+                device_id = item.get("id")
+                if device_id:
+                    # Try to get device name from database
+                    device_info = db.get_device_info(device_id)
+                    enhanced_item = item.copy()
+                    if device_info:
+                        enhanced_item["device_name"] = device_info.get("name", device_id)
+                        enhanced_item["device_type"] = device_info.get("type", "unknown")
+                    else:
+                        enhanced_item["device_name"] = device_id
+                        enhanced_item["device_type"] = "unknown"
+                    enhanced_data.append(enhanced_item)
+                else:
+                    enhanced_data.append(item)
+
+            return jsonify({
+                "data": enhanced_data,
+                "count": len(enhanced_data),
+                "timestamp": dt.datetime.utcnow().isoformat() + "Z",
+                "protocol": "zgp"
+            })
+        except Exception as e:
+            logger.error("Error getting ZGP connectivity", error=str(e))
+            return jsonify({"error": str(e)}), 500
+
     return app
 
 
