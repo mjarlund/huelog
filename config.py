@@ -1,7 +1,7 @@
 """Configuration management for Hue Event Logger."""
 import os
 from typing import Optional
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, field_validator
 import dotenv
 
 dotenv.load_dotenv()
@@ -29,13 +29,13 @@ class Config(BaseModel):
     stream_timeout: int = Field(60, description="Stream connection timeout")
     reconnect_delay: int = Field(2, description="Delay between reconnection attempts")
 
-    @validator('bridge_ip')
+    @field_validator('bridge_ip')
     def validate_bridge_ip(cls, v):
         if not v or v == "your-bridge-ip-here":
             raise ValueError("Please set a valid HUE_BRIDGE_IP")
         return v
 
-    @validator('verify_tls', pre=True)
+    @field_validator('verify_tls', mode='before')
     def validate_verify_tls(cls, v):
         if isinstance(v, str):
             return v.lower() in ('true', '1', 'yes', 'on')
