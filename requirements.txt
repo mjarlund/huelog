@@ -5,3 +5,11 @@ click~=8.1.7
 pydantic~=2.5.0
 structlog~=23.2.0
 colorama~=0.4.6
+
+# Development and testing dependencies
+pytest~=8.3.3
+pytest-cov~=6.0.0
+pytest-mock~=3.14.0
+black~=24.10.0
+isort~=5.13.2
+pre-commit~=4.0.1
