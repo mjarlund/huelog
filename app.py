@@ -20,26 +20,16 @@ from database import HueDatabase
 from hue_processor import HueEventProcessor
 from metrics import metrics, TimingContext
 from health import create_health_checker
+from error_handling import (
+    setup_request_logging, RequestContextManager, ErrorHandler,
+    log_exceptions, log_operation
+)
 
 # Initialize colorama for colored console output
 colorama.init()
 
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.dev.ConsoleRenderer(colors=True)
-    ],
-    context_class=dict,
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    cache_logger_on_first_use=True,
-)
+# Setup enhanced logging with request context
+setup_request_logging()
 
 logger = structlog.get_logger(__name__)
 
@@ -110,13 +100,18 @@ def create_app():
     # Initialize health checker
     health_checker = create_health_checker(db=db, event_processor=event_processor)
 
-    # Request metrics middleware
+    # Initialize error handling
+    error_handler = ErrorHandler(app)
+
+    # Request context and metrics middleware
     @app.before_request
     def before_request():
         request.start_time = time.time()
+        RequestContextManager.before_request()
 
     @app.after_request
     def after_request(response):
+        # Metrics tracking
         if hasattr(request, 'start_time'):
             duration = time.time() - request.start_time
             metrics.record_http_request(
@@ -125,40 +120,31 @@ def create_app():
                 status_code=response.status_code,
                 duration=duration
             )
-        return response
-
-    # Error handlers
-    @app.errorhandler(404)
-    def not_found(error):
-        return jsonify({"error": "Not found"}), 404
-
-    @app.errorhandler(500)
-    def internal_error(error):
-        logger.error("Internal server error", error=str(error))
-        return jsonify({"error": "Internal server error"}), 500
+        
+        # Request logging
+        return RequestContextManager.after_request(response)
 
     # Routes
     @app.route("/")
+    @log_exceptions("web")
     def index():
         """Main events page with filtering."""
         query = request.args.get("q", "", type=str).strip()
         limit = min(request.args.get("limit", 200, type=int), 10000)  # Cap at 10k
 
-        try:
+        with log_operation("load_events", query=query, limit=limit):
             events = db.get_events(query, limit)
             return render_template("index.html", events=events, q=query, limit=limit)
-        except Exception as e:
-            logger.error("Error loading events", error=str(e))
-            return render_template("index.html", events=[], q=query, limit=limit, error=str(e))
 
     @app.route("/health")
+    @log_exceptions("web")
     def health():
         """Device health dashboard."""
         since = request.args.get("since")
         if not since:
             since = (dt.date.today() - dt.timedelta(days=7)).isoformat()
 
-        try:
+        with log_operation("load_health_data", since=since):
             health_data = db.get_device_health(since)
             devices = []
 
@@ -198,10 +184,6 @@ def create_app():
 
             devices.sort(key=lambda x: x["score"], reverse=True)
             return render_template("health.html", since=since, devices=devices)
-
-        except Exception as e:
-            logger.error("Error loading health data", error=str(e))
-            return render_template("health.html", since=since, devices=[], error=str(e))
 
     @app.route("/tail")
     def tail():
