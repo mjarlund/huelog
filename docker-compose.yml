@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  huelog:
+    build: .
+    container_name: hue-event-logger
+    ports:
+      - "9090:8080"
+    environment:
+      # Hue Bridge Configuration
+      - HUE_BRIDGE_IP=${HUE_BRIDGE_IP:-your-bridge-ip-here}
+      - HUE_APP_KEY=${HUE_APP_KEY:-}
+      - HUE_VERIFY_TLS=${HUE_VERIFY_TLS:-false}
+
+      # Database Configuration
+      - DB_PATH=/app/data/hue_events.sqlite
+
+      # Flask Configuration
+      - FLASK_HOST=0.0.0.0
+      - FLASK_PORT=8080
+      - FLASK_DEBUG=${FLASK_DEBUG:-false}
+    volumes:
+      # Persist database data - create directory if it doesn't exist
+      - hue-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - hue-network
+
+networks:
+  hue-network:
+    driver: bridge
+
+volumes:
+  hue-data:
+    driver: local
