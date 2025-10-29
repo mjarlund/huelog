@@ -18,6 +18,8 @@ from config import config
 from hue_auth import HueBridgeAuth
 from database import HueDatabase
 from hue_processor import HueEventProcessor
+from metrics import metrics, TimingContext
+from health import create_health_checker
 
 # Initialize colorama for colored console output
 colorama.init()
@@ -44,6 +46,7 @@ logger = structlog.get_logger(__name__)
 # Global instances
 db = None
 event_processor = None
+health_checker = None
 
 
 def initialize_hue_connection():
@@ -96,13 +99,33 @@ def initialize_hue_connection():
 
 def create_app():
     """Create and configure the Flask application."""
-    global db
+    global db, health_checker
 
     app = Flask(__name__)
     app.config['SECRET_KEY'] = 'hue-event-logger-secret'
 
     # Initialize database
     db = HueDatabase()
+
+    # Initialize health checker
+    health_checker = create_health_checker(db=db, event_processor=event_processor)
+
+    # Request metrics middleware
+    @app.before_request
+    def before_request():
+        request.start_time = time.time()
+
+    @app.after_request
+    def after_request(response):
+        if hasattr(request, 'start_time'):
+            duration = time.time() - request.start_time
+            metrics.record_http_request(
+                method=request.method,
+                path=request.path,
+                status_code=response.status_code,
+                duration=duration
+            )
+        return response
 
     # Error handlers
     @app.errorhandler(404)
@@ -226,35 +249,42 @@ def create_app():
     @app.route("/api/stats")
     def api_stats():
         """API endpoint for basic statistics."""
-        try:
-            with db.get_connection() as conn:
-                cur = conn.cursor()
+        with TimingContext(metrics, "http_request_duration_seconds", {"endpoint": "stats"}):
+            try:
+                with TimingContext(metrics, "database_query_duration_seconds", {"operation": "stats"}):
+                    with db.get_connection() as conn:
+                        cur = conn.cursor()
 
-                # Get basic counts
-                cur.execute("SELECT COUNT(*) FROM events")
-                total_events = cur.fetchone()[0]
+                        # Get basic counts
+                        cur.execute("SELECT COUNT(*) FROM events")
+                        total_events = cur.fetchone()[0]
 
-                cur.execute("SELECT COUNT(*) FROM devices")
-                total_devices = cur.fetchone()[0]
+                        cur.execute("SELECT COUNT(*) FROM devices")
+                        total_devices = cur.fetchone()[0]
 
-                cur.execute("SELECT COUNT(DISTINCT rid) FROM diag WHERE day >= date('now', '-7 days')")
-                active_devices = cur.fetchone()[0]
+                        cur.execute("SELECT COUNT(DISTINCT rid) FROM diag WHERE day >= date('now', '-7 days')")
+                        active_devices = cur.fetchone()[0]
 
-                # Get recent activity
-                cur.execute("SELECT COUNT(*) FROM events WHERE ts >= datetime('now', '-1 hour')")
-                events_last_hour = cur.fetchone()[0]
+                        # Get recent activity
+                        cur.execute("SELECT COUNT(*) FROM events WHERE ts >= datetime('now', '-1 hour')")
+                        events_last_hour = cur.fetchone()[0]
 
-            return jsonify({
-                "total_events": total_events,
-                "total_devices": total_devices,
-                "active_devices_7d": active_devices,
-                "events_last_hour": events_last_hour,
-                "bridge_ip": config.bridge_ip,
-                "uptime": time.time() - app.start_time if hasattr(app, 'start_time') else 0
-            })
-        except Exception as e:
-            logger.error("Error getting stats", error=str(e))
-            return jsonify({"error": str(e)}), 500
+                # Update metrics
+                metrics.update_device_count(total_devices)
+                metrics.update_events_last_hour(events_last_hour)
+
+                return jsonify({
+                    "total_events": total_events,
+                    "total_devices": total_devices,
+                    "active_devices_7d": active_devices,
+                    "events_last_hour": events_last_hour,
+                    "bridge_ip": config.bridge_ip,
+                    "uptime": time.time() - app.start_time if hasattr(app, 'start_time') else 0
+                })
+            except Exception as e:
+                logger.error("Error getting stats", error=str(e))
+                metrics.increment_counter("database_errors_total", labels={"operation": "stats"})
+                return jsonify({"error": str(e)}), 500
 
     @app.route("/api/refresh-devices")
     def api_refresh_devices():
@@ -341,6 +371,54 @@ def create_app():
         except Exception as e:
             logger.error("Error getting ZGP connectivity", error=str(e))
             return jsonify({"error": str(e)}), 500
+
+    @app.route("/metrics")
+    def metrics_endpoint():
+        """Prometheus-style metrics endpoint."""
+        return Response(
+            metrics.get_prometheus_format(),
+            mimetype="text/plain; version=0.0.4; charset=utf-8"
+        )
+
+    @app.route("/api/metrics")
+    def api_metrics():
+        """JSON metrics endpoint."""
+        return jsonify(metrics.get_all_metrics())
+
+    @app.route("/health")
+    def health_endpoint():
+        """Health check endpoint.""" 
+        health_status = health_checker.get_overall_status()
+        
+        # Return appropriate HTTP status code
+        if health_status["status"] == "critical":
+            status_code = 503  # Service Unavailable
+        elif health_status["status"] == "warning":
+            status_code = 200  # OK but with warnings
+        else:
+            status_code = 200  # OK
+        
+        return jsonify(health_status), status_code
+
+    @app.route("/api/health/<check_name>")
+    def single_health_check(check_name):
+        """Run a specific health check."""
+        result = health_checker.run_check(check_name)
+        
+        if result.status.value == "unknown":
+            status_code = 404
+        elif result.status.value == "critical":
+            status_code = 503
+        else:
+            status_code = 200
+            
+        return jsonify({
+            "name": result.name,
+            "status": result.status.value,
+            "message": result.message,
+            "details": result.details,
+            "timestamp": result.timestamp.isoformat() if result.timestamp else None
+        }), status_code
 
     return app
 

@@ -9,6 +9,7 @@ import structlog
 from typing import Dict, Any, List
 from database import HueDatabase
 from config import config
+from metrics import metrics, TimingContext
 
 logger = structlog.get_logger(__name__)
 
@@ -64,13 +65,19 @@ class HueEventProcessor:
         """Fetch and update the device catalog from the bridge."""
         try:
             logger.info("Updating device catalog")
+            
+            start_time = time.time()
             response = requests.get(
                 self.devices_url,
                 headers={"hue-application-key": self.app_key},
                 verify=self.verify_tls,
                 timeout=10
             )
+            duration = time.time() - start_time
+            
             response.raise_for_status()
+            metrics.record_hue_api_request("devices", duration, response.status_code)
+            
             data = response.json()
 
             device_count = 0
@@ -90,6 +97,7 @@ class HueEventProcessor:
 
         except Exception as e:
             logger.error("Failed to update device catalog", error=str(e))
+            metrics.increment_counter("hue_api_errors_total", labels={"endpoint": "devices"})
 
     def get_zigbee_connectivity(self):
         """Fetch zigbee connectivity information from the bridge."""
@@ -172,8 +180,10 @@ class HueEventProcessor:
                                 self._process_event_array(events, now_iso)
                         except json.JSONDecodeError as e:
                             logger.warning("Failed to parse event JSON", error=str(e))
+                            metrics.increment_counter("events_failed_total", labels={"error": "json_decode"})
                         except Exception as e:
                             logger.error("Error processing event", error=str(e))
+                            metrics.increment_counter("events_failed_total", labels={"error": "processing"})
 
             except requests.exceptions.RequestException as e:
                 consecutive_errors += 1
@@ -210,33 +220,49 @@ class HueEventProcessor:
                     continue
 
                 dtype = data.get("type") or event_type
-
-                # Store raw event
-                self.db.insert_event(now_iso, rid, dtype, data)
-
-                # Add to live tail queue
+                
+                start_time = time.time()
                 try:
-                    self.live_tail_events.put_nowait({
-                        "ts": now_iso,
-                        "rid": rid,
-                        "rtype": dtype,
-                        "raw": data
-                    })
-                except queue.Full:
-                    # Drop oldest events if queue is full
+                    # Store raw event
+                    with TimingContext(metrics, "database_query_duration_seconds", {"operation": "insert_event"}):
+                        self.db.insert_event(now_iso, rid, dtype, data)
+
+                    # Add to live tail queue
                     try:
-                        self.live_tail_events.get_nowait()
                         self.live_tail_events.put_nowait({
                             "ts": now_iso,
                             "rid": rid,
                             "rtype": dtype,
                             "raw": data
                         })
-                    except queue.Empty:
-                        pass
+                    except queue.Full:
+                        # Drop oldest events if queue is full
+                        try:
+                            self.live_tail_events.get_nowait()
+                            self.live_tail_events.put_nowait({
+                                "ts": now_iso,
+                                "rid": rid,
+                                "rtype": dtype,
+                                "raw": data
+                            })
+                        except queue.Empty:
+                            pass
 
-                # Update diagnostics
-                self._update_device_diagnostics(rid, data, now_iso, today)
+                    # Update queue size metric
+                    metrics.update_queue_size(self.live_tail_events.qsize())
+
+                    # Update diagnostics
+                    self._update_device_diagnostics(rid, data, now_iso, today)
+
+                    # Record successful processing
+                    duration = time.time() - start_time
+                    metrics.record_event_processed(dtype, duration, success=True)
+
+                except Exception as e:
+                    # Record failed processing
+                    duration = time.time() - start_time
+                    metrics.record_event_processed(dtype, duration, success=False)
+                    raise
 
     def _update_device_diagnostics(self, rid: str, data: Dict[str, Any], now_iso: str, today: str):
         """Update device diagnostic information."""
