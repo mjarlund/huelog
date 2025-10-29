@@ -17,7 +17,7 @@ class HueBridgeAuth:
         self.auth_url = f"https://{bridge_ip}/api"
 
     def generate_app_key(self) -> Optional[str]:
-        """Generate a new APP key by prompting user to press the sync button."""
+        """Generate a new APP key by prompting the user to press the sync button."""
         logger.info("Starting Hue Bridge authentication", bridge_ip=self.bridge_ip)
 
         print(f"\n🔗 Attempting to connect to Hue Bridge at: {self.bridge_ip}")
@@ -84,7 +84,8 @@ class HueBridgeAuth:
         print("   3. The bridge is accessible on your network")
         return None
 
-    def _save_app_key_to_env(self, app_key: str) -> None:
+    @staticmethod
+    def _save_app_key_to_env(app_key: str) -> None:
         """Save the generated APP key to the .env file."""
         env_path = ".env"
         lines = []

@@ -101,7 +101,7 @@ class HueDatabase:
             return cur.fetchall()
 
     def get_events_since_id(self, last_id: int) -> List[sqlite3.Row]:
-        """Get events since a specific ID for live streaming."""
+        """Get events since a specific ID for live-streaming."""
         with self.get_connection() as conn:
             cur = conn.cursor()
             cur.execute("""
