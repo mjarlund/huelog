@@ -24,6 +24,7 @@ from error_handling import (
     setup_request_logging, RequestContextManager, ErrorHandler,
     log_exceptions, log_operation
 )
+from data_export import create_export_routes
 
 # Initialize colorama for colored console output
 colorama.init()
@@ -401,6 +402,9 @@ def create_app():
             "details": result.details,
             "timestamp": result.timestamp.isoformat() if result.timestamp else None
         }), status_code
+
+    # Add export routes
+    create_export_routes(app, db)
 
     return app
 

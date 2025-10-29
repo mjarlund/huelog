@@ -170,6 +170,7 @@
         <a href="/health">🏥 Device Health</a>
         <a href="/tail" target="_blank">📡 Live Tail</a>
         <a href="/api/refresh-devices">🔄 Refresh Devices</a>
+        <a href="/api/export" target="_blank">📤 Export API</a>
       </nav>
     </div>
   </div>
@@ -219,6 +220,7 @@
       </label>
       <button type="submit">📅 Update Period</button>
       <button type="button" onclick="refreshData()">🔄 Refresh</button>
+      <button type="button" onclick="exportHealth()">📤 Export CSV</button>
     </form>
 
     <table id="devices-table">
@@ -309,6 +311,15 @@
   <script>
     function refreshData() {
       window.location.reload();
+    }
+
+    function exportHealth() {
+      const since = document.querySelector('input[name="since"]').value;
+      
+      let exportUrl = '/api/export/health.csv';
+      if (since) exportUrl += `?since=${since}`;
+      
+      window.open(exportUrl, '_blank');
     }
 
     function filterDevices(filter) {

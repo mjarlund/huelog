@@ -162,6 +162,7 @@
         <a href="/health">🏥 Device Health</a>
         <a href="/tail" target="_blank">📡 Live Tail</a>
         <a href="/api/stats" target="_blank">📈 API Stats</a>
+        <a href="/api/export" target="_blank">📤 Export API</a>
       </nav>
     </div>
   </div>
@@ -202,6 +203,7 @@
       <button type="submit">🔍 Filter</button>
       <button type="button" onclick="clearFilter()">🗑️ Clear</button>
       <button type="button" onclick="refreshStats()">🔄 Refresh</button>
+      <button type="button" onclick="exportEvents()">📤 Export CSV</button>
     </form>
 
     <div class="events">
@@ -242,6 +244,17 @@
           document.getElementById('active-devices').textContent = data.active_devices_7d;
         })
         .catch(err => console.error('Failed to load stats:', err));
+    }
+
+    function exportEvents() {
+      const query = document.querySelector('input[name="q"]').value;
+      const limit = document.querySelector('input[name="limit"]').value;
+      
+      let exportUrl = '/api/export/events.csv?';
+      if (query) exportUrl += `q=${encodeURIComponent(query)}&`;
+      if (limit) exportUrl += `limit=${limit}`;
+      
+      window.open(exportUrl, '_blank');
     }
 
     // Load stats on page load
