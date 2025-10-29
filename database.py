@@ -5,6 +5,7 @@ import structlog
 from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
 from config import config
+from performance import PerformanceOptimizer, cached_query, optimize_database_indexes
 
 logger = structlog.get_logger(__name__)
 
@@ -14,17 +15,14 @@ class HueDatabase:
 
     def __init__(self, db_path: str = None):
         self.db_path = db_path or config.db_path
+        self.performance_optimizer = PerformanceOptimizer(self.db_path)
         self.init_db()
 
     @contextmanager
     def get_connection(self):
-        """Context manager for database connections."""
-        conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        try:
+        """Context manager for database connections with performance optimizations."""
+        with self.performance_optimizer.get_connection() as conn:
             yield conn
-        finally:
-            conn.close()
 
     def init_db(self):
         """Initialize database tables."""
@@ -72,6 +70,9 @@ class HueDatabase:
 
             conn.commit()
             logger.info("Database initialized successfully")
+            
+        # Optimize indexes after initialization
+        optimize_database_indexes(self.db_path)
 
     def insert_event(self, ts: str, rid: str, rtype: str, raw_obj: Dict[str, Any]):
         """Insert a new event into the database."""
@@ -82,7 +83,11 @@ class HueDatabase:
                 (ts, rid, rtype, json.dumps(raw_obj))
             )
             conn.commit()
+            
+        # Invalidate relevant cache entries
+        self.performance_optimizer.invalidate_cache("events_")
 
+    @cached_query("events_{func_name}_{args}_{kwargs}", ttl=60)
     def get_events(self, query: str = None, limit: int = 200) -> List[sqlite3.Row]:
         """Retrieve events with optional filtering."""
         with self.get_connection() as conn:
@@ -209,6 +214,7 @@ class HueDatabase:
             """, (rid, day))
             conn.commit()
 
+    @cached_query("health_{func_name}_{args}_{kwargs}", ttl=120)
     def get_device_health(self, since: str) -> List[sqlite3.Row]:
         """Get device health statistics since a given date."""
         with self.get_connection() as conn:
@@ -239,4 +245,30 @@ class HueDatabase:
             deleted = cur.rowcount
             conn.commit()
             logger.info("Cleaned up old events", deleted_count=deleted)
+            
+            # Invalidate cache after cleanup
+            self.performance_optimizer.invalidate_cache()
+            
             return deleted
+    
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get database performance statistics.""" 
+        from performance import analyze_database_performance
+        
+        db_stats = analyze_database_performance(self.db_path)
+        cache_stats = self.performance_optimizer.get_cache_stats()
+        
+        return {
+            "database": db_stats,
+            "cache": cache_stats,
+            "connection_pool": {
+                "max_connections": self.performance_optimizer.connection_pool.max_connections,
+                "active_connections": len(self.performance_optimizer.connection_pool._used_connections),
+                "pooled_connections": len(self.performance_optimizer.connection_pool._pool)
+            }
+        }
+    
+    def invalidate_cache(self, pattern: Optional[str] = None):
+        """Manually invalidate cache entries."""
+        self.performance_optimizer.invalidate_cache(pattern)
+        logger.info("Cache invalidated", pattern=pattern)

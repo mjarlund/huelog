@@ -403,6 +403,29 @@ def create_app():
             "timestamp": result.timestamp.isoformat() if result.timestamp else None
         }), status_code
 
+    @app.route("/api/performance")
+    @log_exceptions("performance")
+    def api_performance():
+        """API endpoint for performance statistics."""
+        try:
+            performance_stats = db.get_performance_stats()
+            return jsonify(performance_stats)
+        except Exception as e:
+            logger.error("Error getting performance stats", error=str(e))
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/cache/invalidate", methods=["POST"])
+    @log_exceptions("cache")
+    def api_invalidate_cache():
+        """API endpoint to manually invalidate cache."""
+        try:
+            pattern = request.get_json().get("pattern") if request.is_json else None
+            db.invalidate_cache(pattern)
+            return jsonify({"status": "success", "message": "Cache invalidated"})
+        except Exception as e:
+            logger.error("Error invalidating cache", error=str(e))
+            return jsonify({"error": str(e)}), 500
+
     # Add export routes
     create_export_routes(app, db)
 

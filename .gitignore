@@ -53,7 +53,7 @@ Pipfile.lock
 .env
 
 # SQLite database
-*.sqlite
+*.sqlite*
 
 # VS Code
 .vscode/
