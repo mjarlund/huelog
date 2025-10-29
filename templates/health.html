@@ -1,0 +1,396 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Hue Device Health</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0;
+      background: #f8f9fa;
+      color: #212529;
+    }
+    .container { max-width: 1400px; margin: 0 auto; padding: 1rem; }
+    .header {
+      background: white;
+      border-bottom: 1px solid #dee2e6;
+      margin-bottom: 1rem;
+      padding: 1rem 0;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .nav {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .nav a {
+      color: #0066cc;
+      text-decoration: none;
+      padding: 0.5rem 1rem;
+      border-radius: 0.25rem;
+      border: 1px solid #dee2e6;
+      background: white;
+      transition: all 0.2s;
+    }
+    .nav a:hover {
+      background: #e9ecef;
+      border-color: #adb5bd;
+    }
+    .controls {
+      background: white;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      border: 1px solid #dee2e6;
+      margin-bottom: 1rem;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    input, button, select {
+      font: inherit;
+      padding: 0.5rem;
+      border: 1px solid #ced4da;
+      border-radius: 0.25rem;
+    }
+    input:focus, button:focus, select:focus {
+      outline: none;
+      border-color: #0066cc;
+      box-shadow: 0 0 0 0.2rem rgba(0, 102, 204, 0.25);
+    }
+    button {
+      background: #0066cc;
+      color: white;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    button:hover { background: #0052a3; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .summary-card {
+      background: white;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      border: 1px solid #dee2e6;
+      text-align: center;
+    }
+    .summary-value {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+    .summary-label {
+      font-size: 0.875rem;
+      color: #6c757d;
+    }
+    .ok .summary-value { color: #28a745; }
+    .warn .summary-value { color: #ffc107; }
+    .bad .summary-value { color: #dc3545; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      border-radius: 0.5rem;
+      overflow: hidden;
+      border: 1px solid #dee2e6;
+    }
+    th, td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid #f8f9fa;
+    }
+    th {
+      background: #f8f9fa;
+      font-weight: 600;
+      color: #495057;
+      position: sticky;
+      top: 0;
+    }
+    tr:hover { background: #f8f9fa; }
+    .pill {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 1rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      min-width: 50px;
+      text-align: center;
+    }
+    .pill.ok { background: #d4edda; color: #155724; }
+    .pill.warn { background: #fff3cd; color: #856404; }
+    .pill.bad { background: #f8d7da; color: #721c24; }
+    .device-name {
+      font-weight: 600;
+      color: #212529;
+    }
+    .device-type {
+      font-size: 0.875rem;
+      color: #6c757d;
+      display: block;
+    }
+    .timestamp {
+      font-family: ui-monospace, Menlo, Monaco, monospace;
+      font-size: 0.875rem;
+      color: #6c757d;
+    }
+    .battery-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    .battery-low { color: #dc3545; }
+    .battery-ok { color: #28a745; }
+    .no-data { color: #6c757d; font-style: italic; }
+    .error {
+      background: #f8d7da;
+      color: #721c24;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 768px) {
+      table { font-size: 0.875rem; }
+      th, td { padding: 0.5rem; }
+      .controls { flex-direction: column; align-items: stretch; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="container">
+      <nav class="nav">
+        <a href="/">📊 Raw Events</a>
+        <a href="/health">🏥 Device Health</a>
+        <a href="/tail" target="_blank">📡 Live Tail</a>
+        <a href="/api/refresh-devices">🔄 Refresh Devices</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container">
+    <h1>🏥 Device Health Dashboard</h1>
+
+    {% if error %}
+    <div class="error">
+      <strong>Error:</strong> {{ error }}
+    </div>
+    {% endif %}
+
+    <div class="summary">
+      <div class="summary-card ok">
+        <div class="summary-value" id="healthy-count">0</div>
+        <div class="summary-label">Healthy Devices</div>
+      </div>
+      <div class="summary-card warn">
+        <div class="summary-value" id="warning-count">0</div>
+        <div class="summary-label">Warning Devices</div>
+      </div>
+      <div class="summary-card bad">
+        <div class="summary-value" id="critical-count">0</div>
+        <div class="summary-label">Critical Devices</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-value">{{ devices|length }}</div>
+        <div class="summary-label">Total Devices</div>
+      </div>
+    </div>
+
+    <form class="controls">
+      <label>
+        Since:
+        <input name="since" type="date" value="{{ since|e }}">
+      </label>
+      <label>
+        Filter:
+        <select name="filter" onchange="filterDevices(this.value)">
+          <option value="">All devices</option>
+          <option value="critical">Critical only</option>
+          <option value="warning">Warning only</option>
+          <option value="battery">Battery issues</option>
+          <option value="offline">Recently offline</option>
+        </select>
+      </label>
+      <button type="submit">📅 Update Period</button>
+      <button type="button" onclick="refreshData()">🔄 Refresh</button>
+    </form>
+
+    <table id="devices-table">
+      <thead>
+        <tr>
+          <th>Device</th>
+          <th>Health Score</th>
+          <th>Disconnects</th>
+          <th>Downtime</th>
+          <th>Last Seen</th>
+          <th>Battery</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for device in devices %}
+        {% set badge_class = 'ok' if device.score < 3 else 'warn' if device.score < 8 else 'bad' %}
+        <tr class="device-row" data-score="{{ device.score }}" data-battery="{{ device.battery_low|lower }}">
+          <td>
+            <div class="device-name">{{ device.name }}</div>
+            <span class="device-type">{{ device.type }}</span>
+            <small class="no-data">{{ device.rid }}</small>
+          </td>
+          <td>
+            <span class="pill {{ badge_class }}">{{ device.score }}</span>
+          </td>
+          <td>
+            {% if device.disconnects > 0 %}
+              <strong>{{ device.disconnects }}</strong>
+            {% else %}
+              <span class="no-data">0</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if device.minutes_unreachable > 0 %}
+              {% if device.minutes_unreachable >= 60 %}
+                <strong>{{ "%.1f"|format(device.minutes_unreachable / 60) }}h</strong>
+              {% else %}
+                <strong>{{ device.minutes_unreachable }}m</strong>
+              {% endif %}
+            {% else %}
+              <span class="no-data">0m</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if device.last_seen_ts %}
+              <span class="timestamp">
+                {{ device.last_seen_ts|replace('T', ' ')|replace('Z', '') }}
+              </span>
+              {% if device.age_hours %}
+                <br><small class="no-data">{{ "%.1f"|format(device.age_hours) }}h ago</small>
+              {% endif %}
+            {% else %}
+              <span class="no-data">Never</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="battery-indicator">
+              {% if device.battery_low %}
+                <span class="battery-low">🔋 Low</span>
+              {% else %}
+                <span class="battery-ok">🔋 OK</span>
+              {% endif %}
+            </div>
+          </td>
+          <td>
+            {% if device.score >= 8 %}
+              <span class="pill bad">Critical</span>
+            {% elif device.score >= 3 %}
+              <span class="pill warn">Warning</span>
+            {% else %}
+              <span class="pill ok">Healthy</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not devices %}
+        <tr>
+          <td colspan="7" style="text-align: center; padding: 2rem; color: #6c757d;">
+            No device data available for the selected period
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    function refreshData() {
+      window.location.reload();
+    }
+
+    function filterDevices(filter) {
+      const rows = document.querySelectorAll('.device-row');
+
+      rows.forEach(row => {
+        let show = true;
+        const score = parseInt(row.dataset.score);
+        const hasBatteryIssue = row.dataset.battery === 'true';
+
+        switch (filter) {
+          case 'critical':
+            show = score >= 8;
+            break;
+          case 'warning':
+            show = score >= 3 && score < 8;
+            break;
+          case 'battery':
+            show = hasBatteryIssue;
+            break;
+          case 'offline':
+            show = score > 0; // Any issues indicate recent problems
+            break;
+        }
+
+        row.style.display = show ? '' : 'none';
+      });
+
+      updateSummary();
+    }
+
+    function updateSummary() {
+      const visibleRows = document.querySelectorAll('.device-row:not([style*="display: none"])');
+      let healthy = 0, warning = 0, critical = 0;
+
+      visibleRows.forEach(row => {
+        const score = parseInt(row.dataset.score);
+        if (score >= 8) critical++;
+        else if (score >= 3) warning++;
+        else healthy++;
+      });
+
+      document.getElementById('healthy-count').textContent = healthy;
+      document.getElementById('warning-count').textContent = warning;
+      document.getElementById('critical-count').textContent = critical;
+    }
+
+    // Initialize summary on page load
+    updateSummary();
+
+    // Sort table functionality
+    document.querySelectorAll('th').forEach((header, index) => {
+      if (index === 0) return; // Skip device name column
+
+      header.style.cursor = 'pointer';
+      header.addEventListener('click', () => {
+        sortTable(index);
+      });
+    });
+
+    function sortTable(columnIndex) {
+      const table = document.getElementById('devices-table');
+      const tbody = table.querySelector('tbody');
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+
+      rows.sort((a, b) => {
+        const aValue = a.cells[columnIndex].textContent.trim();
+        const bValue = b.cells[columnIndex].textContent.trim();
+
+        // Try to parse as numbers
+        const aNum = parseFloat(aValue);
+        const bNum = parseFloat(bValue);
+
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+          return bNum - aNum; // Descending for numbers
+        }
+
+        return aValue.localeCompare(bValue);
+      });
+
+      rows.forEach(row => tbody.appendChild(row));
+    }
+  </script>
+</body>
+</html>

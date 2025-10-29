@@ -1,0 +1,264 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Hue Event Log</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0;
+      background: #f8f9fa;
+      color: #212529;
+    }
+    .container { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+    .header {
+      background: white;
+      border-bottom: 1px solid #dee2e6;
+      margin-bottom: 1rem;
+      padding: 1rem 0;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .nav {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .nav a {
+      color: #0066cc;
+      text-decoration: none;
+      padding: 0.5rem 1rem;
+      border-radius: 0.25rem;
+      border: 1px solid #dee2e6;
+      background: white;
+      transition: all 0.2s;
+    }
+    .nav a:hover {
+      background: #e9ecef;
+      border-color: #adb5bd;
+    }
+    .stats {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .stat-card {
+      background: white;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      border: 1px solid #dee2e6;
+      min-width: 120px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: #0066cc;
+    }
+    .stat-label {
+      font-size: 0.875rem;
+      color: #6c757d;
+      margin-top: 0.25rem;
+    }
+    .controls {
+      background: white;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      border: 1px solid #dee2e6;
+      margin-bottom: 1rem;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    input, button, select {
+      font: inherit;
+      padding: 0.5rem;
+      border: 1px solid #ced4da;
+      border-radius: 0.25rem;
+    }
+    input:focus, button:focus, select:focus {
+      outline: none;
+      border-color: #0066cc;
+      box-shadow: 0 0 0 0.2rem rgba(0, 102, 204, 0.25);
+    }
+    button {
+      background: #0066cc;
+      color: white;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    button:hover { background: #0052a3; }
+    .events {
+      background: white;
+      border-radius: 0.5rem;
+      border: 1px solid #dee2e6;
+      overflow: hidden;
+    }
+    .event {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #f8f9fa;
+      font-family: ui-monospace, Menlo, Monaco, monospace;
+      font-size: 0.875rem;
+      line-height: 1.4;
+    }
+    .event:last-child { border-bottom: none; }
+    .event:hover { background: #f8f9fa; }
+    .event-header {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .timestamp {
+      font-weight: 600;
+      color: #495057;
+      white-space: nowrap;
+    }
+    .event-type {
+      background: #e9ecef;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+    .rid {
+      color: #6c757d;
+      font-size: 0.75rem;
+    }
+    .event-data {
+      color: #212529;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .error {
+      background: #f8d7da;
+      color: #721c24;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #6c757d;
+    }
+    @media (max-width: 768px) {
+      .stats { flex-direction: column; }
+      .controls { flex-direction: column; align-items: stretch; }
+      .event-header { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="container">
+      <nav class="nav">
+        <a href="/">📊 Raw Events</a>
+        <a href="/health">🏥 Device Health</a>
+        <a href="/tail" target="_blank">📡 Live Tail</a>
+        <a href="/api/stats" target="_blank">📈 API Stats</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container">
+    <h1>🔵 Hue Event Log</h1>
+
+    <div class="stats" id="stats">
+      <div class="stat-card">
+        <div class="stat-value" id="total-events">-</div>
+        <div class="stat-label">Total Events</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="events-shown">{{ events|length }}</div>
+        <div class="stat-label">Events Shown</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="total-devices">-</div>
+        <div class="stat-label">Total Devices</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="active-devices">-</div>
+        <div class="stat-label">Active (7d)</div>
+      </div>
+    </div>
+
+    {% if error %}
+    <div class="error">
+      <strong>Error:</strong> {{ error }}
+    </div>
+    {% endif %}
+
+    <form class="controls">
+      <input name="q" placeholder="Filter events (e.g., motion, button, battery, zigbee_connectivity)"
+             value="{{ q|e }}" style="min-width: 300px;">
+      <input name="limit" type="number" min="10" max="10000" value="{{ limit }}"
+             style="width: 100px;">
+      <button type="submit">🔍 Filter</button>
+      <button type="button" onclick="clearFilter()">🗑️ Clear</button>
+      <button type="button" onclick="refreshStats()">🔄 Refresh</button>
+    </form>
+
+    <div class="events">
+      {% if events %}
+        {% for event in events %}
+        <div class="event">
+          <div class="event-header">
+            <span class="timestamp">{{ event.ts }}</span>
+            <span class="event-type">{{ event.rtype or 'unknown' }}</span>
+            <span class="rid">{{ event.rid or 'no-id' }}</span>
+          </div>
+          <div class="event-data">{{ event.raw }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="loading">
+          {% if q %}
+            No events found matching "{{ q }}"
+          {% else %}
+            No events recorded yet
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+    function clearFilter() {
+      window.location.href = '/';
+    }
+
+    function refreshStats() {
+      fetch('/api/stats')
+        .then(response => response.json())
+        .then(data => {
+          document.getElementById('total-events').textContent = data.total_events.toLocaleString();
+          document.getElementById('total-devices').textContent = data.total_devices;
+          document.getElementById('active-devices').textContent = data.active_devices_7d;
+        })
+        .catch(err => console.error('Failed to load stats:', err));
+    }
+
+    // Load stats on page load
+    refreshStats();
+
+    // Auto-refresh stats every 30 seconds
+    setInterval(refreshStats, 30000);
+
+    // Pretty print JSON in event data
+    document.querySelectorAll('.event-data').forEach(el => {
+      try {
+        const json = JSON.parse(el.textContent);
+        el.textContent = JSON.stringify(json, null, 2);
+      } catch (e) {
+        // Not JSON, leave as is
+      }
+    });
+  </script>
+</body>
+</html>
