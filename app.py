@@ -282,7 +282,23 @@ def create_app():
             logger.error("Error refreshing devices", error=str(e))
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/resource/zigbee_connectivity")
+    @app.route("/resources")
+    def resources():
+        """API endpoint to list available resources."""
+        try:
+            if not event_processor:
+                return jsonify({"error": "Event processor not initialized"}), 503
+
+            resources = event_processor.list_resources()
+            return jsonify({
+                "resources": resources,
+                "timestamp": dt.datetime.utcnow().isoformat() + "Z"
+            })
+        except Exception as e:
+            logger.error("Error listing resources", error=str(e))
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/resources/zigbee_connectivity")
     def resource_zigbee_connectivity():
         """API endpoint to get zigbee connectivity information."""
         try:
@@ -318,7 +334,7 @@ def create_app():
             logger.error("Error getting zigbee connectivity", error=str(e))
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/resource/zgp_connectivity")
+    @app.route("/resources/zgp_connectivity")
     def resource_zgp_connectivity():
         """API endpoint to get ZGP (Zigbee Green Power) connectivity information."""
         try:

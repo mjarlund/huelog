@@ -99,6 +99,29 @@ class HueEventProcessor:
             logger.error("Failed to update device catalog", error=str(e))
             metrics.increment_counter("hue_api_errors_total", labels={"endpoint": "devices"})
 
+    def list_resources(self):
+        """Fetch all resources from the bridge."""
+        try:
+            resources_url = f"https://{self.bridge_ip}/clip/v2/resource"
+            response = requests.get(
+                resources_url,
+                headers={"hue-application-key": self.app_key},
+                verify=self.verify_tls,
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.debug("Fetched resources data",
+                        resource_count=len(data.get("data", [])))
+            return data.get("data", [])
+
+        except Exception as e:
+            logger.error("Failed to fetch resources", error=str(e))
+            return []
+
+
+
     def get_zigbee_connectivity(self):
         """Fetch zigbee connectivity information from the bridge."""
         try:
